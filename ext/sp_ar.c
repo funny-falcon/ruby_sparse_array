@@ -6,19 +6,9 @@
 #endif
 #include <string.h>
 
-#if SIZEOF_LONG == SIZEOF_VOIDP
-typedef unsigned long st_data_t;
-#elif SIZEOF_LONG_LONG == SIZEOF_VOIDP
-typedef unsigned LONG_LONG st_data_t;
-#else
-# error ---->> sp_ar.c requires sizeof(void*) == sizeof(long) or sizeof(LONG_LONG) to be compiled. <<----
-#endif
-
 typedef unsigned int spar_index_t;
-#define spar_STOP     ST_STOP
-#define spar_CONTINUE ST_CONTINUE
 
-#define spar_EMPTY   0
+#define SPAR_EMPTY   0
 
 typedef struct spar_entry {
     spar_index_t next;
@@ -33,7 +23,7 @@ typedef struct spar_table {
     spar_entry *entries;
 } spar_table;
 
-#define spar_EMPTY_TABLE {0, 0, 0, 0};
+#define SPAR_EMPTY_TABLE {0, 0, 0, 0};
 static void spar_init_table(spar_table *, spar_index_t);
 static spar_table *spar_new_table();
 static int  spar_insert(spar_table *, spar_index_t, st_data_t);
@@ -43,14 +33,13 @@ static void spar_clear(spar_table *);
 static void spar_free_table(spar_table *);
 static size_t spar_memsize(const spar_table *);
 static void spar_copy_to(spar_table*, spar_table*);
-typedef int (*spar_iter_func)(spar_index_t key, st_data_t val, st_data_t arg);
 
 #define SPAR_FOREACH_START_I(table, entry) do { \
     spar_table *T##entry = (table); \
     spar_index_t K##entry; \
     for(K##entry = 0; K##entry < T##entry->num_bins; K##entry++) { \
 	spar_entry *entry = T##entry->entries + K##entry; \
-	if (entry->next != spar_EMPTY) { \
+	if (entry->next != SPAR_EMPTY) { \
 	    st_data_t value = entry->value
 #define SPAR_FOREACH_END() } } } while(0)
 
@@ -67,10 +56,10 @@ typedef int (*spar_iter_func)(spar_index_t key, st_data_t val, st_data_t arg);
 #define spar_entry_alloc(n)         (spar_entry*)calloc((n), sizeof(spar_entry))
 #define spar_entry_dealloc(entries) free(entries)
 
-#define spar_LAST   1
-#define spar_OFFSET 2
+#define SPAR_LAST   1
+#define SPAR_OFFSET 2
 
-#define spar_MIN_SIZE 4
+#define SPAR_MIN_SIZE 4
 
 static void
 spar_init_table(register spar_table *table, spar_index_t num_bins)
@@ -97,33 +86,36 @@ spar_new_table()
 static inline spar_index_t
 calc_pos(register spar_table* table, spar_index_t key)
 {
-    /* this formula is empirical */
-    /* it has no good avalance, but works well in our case */
-    key ^= key >> 16;
-    key *= 0x445229;
-    return (key + (key >> 16)) % table->num_bins;
+    uint64_t res = (uint64_t)key * 0x85ebca6bull;
+    return ((spar_index_t)res ^ (spar_index_t)(res >> 32)) % table->num_bins;
 }
 
 static void
 fix_empty(register spar_table* table)
 {
     while(--table->free_pos &&
-            table->entries[table->free_pos-1].next != spar_EMPTY);
+            table->entries[table->free_pos-1].next != SPAR_EMPTY);
 }
 
 #define FLOOR_TO_4 ((~((spar_index_t)0)) << 2)
+static int checks[][3] = {
+        { 1, 2, 3 },
+        { 2, 3, 0 },
+        { 3, 2, 0 },
+        { 2, 1, 0 },
+};
 static spar_index_t
 find_empty(register spar_table* table, register spar_index_t pos)
 {
     spar_index_t new_pos = table->free_pos-1;
     spar_entry *entry;
+    int *check = checks[pos&3];
     pos &= FLOOR_TO_4;
     entry = table->entries+pos;
 
-    if (entry->next == spar_EMPTY) { new_pos = pos; }
-    else if ((++entry)->next == spar_EMPTY) { new_pos = pos + 1; }
-    else if ((++entry)->next == spar_EMPTY) { new_pos = pos + 2; }
-    else if ((++entry)->next == spar_EMPTY) { new_pos = pos + 3; }
+    if (entry[check[0]].next == SPAR_EMPTY) { new_pos = pos + check[0];}
+    else if (entry[check[1]].next == SPAR_EMPTY) { new_pos = pos + check[1];}
+    else if (entry[check[2]].next == SPAR_EMPTY) { new_pos = pos + check[2];}
 
     if (new_pos+1 == table->free_pos) fix_empty(table);
     return new_pos;
@@ -140,14 +132,14 @@ spar_insert(register spar_table* table, register spar_index_t key, st_data_t val
     register spar_entry *entry;
 
     if (table->num_bins == 0) {
-        spar_init_table(table, spar_MIN_SIZE);
+        spar_init_table(table, SPAR_MIN_SIZE);
     }
 
     pos = calc_pos(table, key);
     entry = table->entries + pos;
 
-    if (entry->next == spar_EMPTY) {
-        entry->next = spar_LAST;
+    if (entry->next == SPAR_EMPTY) {
+        entry->next = SPAR_LAST;
         entry->key = key;
         entry->value = value;
         table->num_entries++;
@@ -184,8 +176,8 @@ insert_into_chain(register spar_table* table, register spar_index_t key, st_data
     spar_entry *entry = table->entries + pos, *new_entry;
     spar_index_t new_pos;
 
-    while (entry->next != spar_LAST) {
-        pos = entry->next - spar_OFFSET;
+    while (entry->next != SPAR_LAST) {
+        pos = entry->next - SPAR_OFFSET;
         entry = table->entries + pos;
         if (entry->key == key) {
             entry->value = value;
@@ -200,9 +192,9 @@ insert_into_chain(register spar_table* table, register spar_index_t key, st_data
 
     new_pos = find_empty(table, pos);
     new_entry = table->entries + new_pos;
-    entry->next = new_pos + spar_OFFSET;
+    entry->next = new_pos + SPAR_OFFSET;
 
-    new_entry->next = spar_LAST;
+    new_entry->next = SPAR_LAST;
     new_entry->key = key;
     new_entry->value = value;
     table->num_entries++;
@@ -219,12 +211,12 @@ insert_into_main(register spar_table* table, spar_index_t key, st_data_t value, 
 
     *new_entry = *entry;
 
-    while((npos = table->entries[prev_pos].next - spar_OFFSET) != pos) {
+    while((npos = table->entries[prev_pos].next - SPAR_OFFSET) != pos) {
         prev_pos = npos;
     }
-    table->entries[prev_pos].next = new_pos + spar_OFFSET;
+    table->entries[prev_pos].next = new_pos + SPAR_OFFSET;
 
-    entry->next = spar_LAST;
+    entry->next = SPAR_LAST;
     entry->key = key;
     entry->value = value;
     table->num_entries++;
@@ -235,13 +227,12 @@ static spar_index_t
 new_size(spar_index_t num_entries)
 {
     spar_index_t msb = num_entries;
-    msb |= msb >> 1;
     msb |= msb >> 2;
     msb |= msb >> 4;
     msb |= msb >> 8;
     msb |= msb >> 16;
-    msb = ((msb >> 4) + 1) << 3;
-    return (num_entries & (msb | (msb >> 1))) + (msb >> 1);
+    msb |= msb >> 3;
+    return ((msb >> 3) + 1) << 4;
 }
 
 static void
@@ -261,7 +252,7 @@ resize(register spar_table *table)
     entry = table->entries;
 
     for(i = 0; i < table->num_bins; i++, entry++) {
-        if (entry->next != spar_EMPTY) {
+        if (entry->next != SPAR_EMPTY) {
             spar_insert(&tmp_table, entry->key, entry->value);
         }
     }
@@ -270,23 +261,29 @@ resize(register spar_table *table)
 }
 
 static int
-spar_lookup(register spar_table *table, register spar_index_t key, st_data_t *value)
+spar_lookup(spar_table *table, register spar_index_t key, st_data_t *value)
 {
     register spar_entry *entry;
+    register spar_index_t next;
+    register spar_entry *entries = table->entries;
 
     if (table->num_entries == 0) return 0;
 
-    entry = table->entries + calc_pos(table, key);
-    if (entry->next == spar_EMPTY) return 0;
-
-    if (entry->key == key) goto found;
-    if (entry->next == spar_LAST) return 0;
-
-    entry = table->entries + (entry->next - spar_OFFSET);
+    entry = entries + calc_pos(table, key);
+    next = entry->next;
+    if (next == SPAR_EMPTY) return 0;
     if (entry->key == key) goto found;
 
-    while(entry->next != spar_LAST) {
-        entry = table->entries + (entry->next - spar_OFFSET);
+    entries -= SPAR_OFFSET;
+
+    entry = entries + next;
+    next = entry->next;
+    if (next == SPAR_EMPTY) return 0;
+    if (entry->key == key) goto found;
+
+    while(next != SPAR_LAST) {
+        entry = entries + next;
+	next = entry->next;
         if (entry->key == key) goto found;
     }
     return 0;
@@ -320,20 +317,20 @@ spar_delete(spar_table *table, spar_index_t key, st_data_t *value)
     pos = calc_pos(table, key);
     entry = table->entries + pos;
 
-    if (entry->next == spar_EMPTY) goto not_found;
+    if (entry->next == SPAR_EMPTY) goto not_found;
 
     do {
         if (entry->key == key) {
             if (value) *value = entry->value;
-            if (entry->next != spar_LAST) {
-                spar_index_t npos = entry->next - spar_OFFSET;
+            if (entry->next != SPAR_LAST) {
+                spar_index_t npos = entry->next - SPAR_OFFSET;
                 *entry = table->entries[npos];
                 memset(table->entries + npos, 0, sizeof(spar_entry));
             }
             else {
                 memset(table->entries + pos, 0, sizeof(spar_entry));
                 if (~prev_pos) {
-                    table->entries[prev_pos].next = spar_LAST;
+                    table->entries[prev_pos].next = SPAR_LAST;
                 }
             }
             table->num_entries--;
@@ -342,9 +339,9 @@ spar_delete(spar_table *table, spar_index_t key, st_data_t *value)
             }
             return 1;
         }
-        if (entry->next == spar_LAST) break;
+        if (entry->next == SPAR_LAST) break;
         prev_pos = pos;
-        pos = entry->next - spar_OFFSET;
+        pos = entry->next - SPAR_OFFSET;
         entry = table->entries + pos;
     } while(1);
 
