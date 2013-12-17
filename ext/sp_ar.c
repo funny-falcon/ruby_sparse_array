@@ -101,7 +101,7 @@ fix_empty(register spar_table* table)
 static int checks[][3] = {
         { 1, 2, 3 },
         { 2, 3, 0 },
-        { 3, 2, 0 },
+        { 3, 1, 0 },
         { 2, 1, 0 },
 };
 static spar_index_t
@@ -273,12 +273,12 @@ spar_lookup(spar_table *table, register spar_index_t key, st_data_t *value)
     next = entry->next;
     if (next == SPAR_EMPTY) return 0;
     if (entry->key == key) goto found;
+    if (next == SPAR_LAST) return 0;
 
     entries -= SPAR_OFFSET;
 
     entry = entries + next;
     next = entry->next;
-    if (next == SPAR_EMPTY) return 0;
     if (entry->key == key) goto found;
 
     while(next != SPAR_LAST) {
