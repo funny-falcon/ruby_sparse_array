@@ -87,6 +87,7 @@ static inline spar_index_t
 calc_pos(register spar_table* table, spar_index_t key)
 {
     uint64_t res = (uint64_t)key * 0x85ebca6bull;
+    res = (res >> 29) * 0x85ebca6bull;
     return ((spar_index_t)res ^ (spar_index_t)(res >> 32)) % table->num_bins;
 }
 
@@ -527,21 +528,14 @@ static VALUE
 sparse_array_each(VALUE self)
 {
     spar_table *table;
-    VALUE keys;
-    long i, size;
-    VALUE *p;
+    VALUE y[2] = {Qnil, Qnil};
     RETURN_ENUMERATOR(self, 0, 0);
     GetSparseArray(self, table);
-    keys = sparse_array_keys(self);
-    size = RARRAY_LEN(keys);
-    p = RARRAY_PTR(keys);
-    for(i=0; i<size; i++) {
-        spar_index_t k = NUM2UINT(p[i]);
-        st_data_t v = Qnil;
-        if (spar_lookup(table, k, &v))
-            rb_yield(rb_assoc_new(p[i], (VALUE)v));
-    }
-    RB_GC_GUARD(keys);
+    SPAR_FOREACH_START(table);
+    y[0] = UINT2NUM(entry->key);
+    y[1] = (VALUE)value;
+    rb_yield_values2(2, y);
+    SPAR_FOREACH_END();
     return self;
 }
 
@@ -549,21 +543,12 @@ static VALUE
 sparse_array_each_key(VALUE self)
 {
     spar_table *table;
-    VALUE keys;
-    long i, size;
-    VALUE *p;
     RETURN_ENUMERATOR(self, 0, 0);
     GetSparseArray(self, table);
-    keys = sparse_array_keys(self);
-    size = RARRAY_LEN(keys);
-    p = RARRAY_PTR(keys);
-    for(i=0; i<size; i++) {
-        spar_index_t k = NUM2UINT(p[i]);
-        st_data_t v = Qnil;
-        if (spar_lookup(table, k, &v))
-            rb_yield(p[i]);
-    }
-    RB_GC_GUARD(keys);
+    SPAR_FOREACH_START(table);
+    (void)value;
+    rb_yield(UINT2NUM(entry->key));
+    SPAR_FOREACH_END();
     return self;
 }
 
@@ -571,21 +556,11 @@ static VALUE
 sparse_array_each_value(VALUE self)
 {
     spar_table *table;
-    VALUE keys;
-    long i, size;
-    VALUE *p;
     RETURN_ENUMERATOR(self, 0, 0);
-    GetSparseArray(self, table);
-    keys = sparse_array_keys(self);
-    size = RARRAY_LEN(keys);
-    p = RARRAY_PTR(keys);
-    for(i=0; i<size; i++) {
-        spar_index_t k = NUM2UINT(p[i]);
-        st_data_t v = Qnil;
-        if (spar_lookup(table, k, &v))
-            rb_yield(v);
-    }
-    RB_GC_GUARD(keys);
+    GetSparseArrayInt(self, table);
+    SPAR_FOREACH_START(table);
+    rb_yield((VALUE)(value));
+    SPAR_FOREACH_END();
     return self;
 }
 
@@ -632,9 +607,233 @@ sparse_array_inspect(VALUE self)
     return rb_exec_recursive(sparse_array_inspect_rec, self, 0);
 }
 
+/******** Ruby Sparse Int Array binding ********/
+
+static const rb_data_type_t SparseArrayInt_data_type = {
+	"SparseArrayIntC",
+	{NULL, sparse_array_delete, sparse_array_memsize}
+};
+
+#define GetSparseArrayInt(value, pointer) \
+    TypedData_Get_Struct((value), spar_table, &SparseArrayInt_data_type, (pointer))
+
+static VALUE
+sparse_array_int_alloc(VALUE klass)
+{
+    spar_table* table = spar_new_table();
+    return TypedData_Wrap_Struct(klass, &SparseArrayInt_data_type, table);
+}
+
+#if SIZEOF_LONG == SIZEOF_VOIDP
+#define st_data2num(res) LONG2NUM((long)res)
+#define num2st_data(val) NUM2LONG(val)
+#else
+#define st_data2num(res) LL2NUM((LONG_LONG)res)
+#define num2st_data(val) NUM2LL(val)
+#endif
+
+static VALUE
+sparse_array_int_get(VALUE self, VALUE ri)
+{
+    spar_table *table;
+    spar_index_t i = NUM2UINT(ri);
+    st_data_t res = 0;
+    GetSparseArrayInt(self, table);
+    if (spar_lookup(table, i, &res)) {
+	return st_data2num(res);
+    }
+    return Qnil;
+}
+
+static VALUE
+sparse_array_int_include(VALUE self, VALUE ri)
+{
+    spar_table *table;
+    spar_index_t i = NUM2UINT(ri);
+    st_data_t res = Qnil;
+    GetSparseArrayInt(self, table);
+    if (spar_lookup(table, i, &res))
+        return Qtrue;
+    else
+        return Qfalse;
+}
+
+static VALUE
+sparse_array_int_fetch(VALUE self, VALUE ri, VALUE def)
+{
+    spar_table *table;
+    spar_index_t i = NUM2UINT(ri);
+    st_data_t res = 0;
+    GetSparseArrayInt(self, table);
+    if (spar_lookup(table, i, &res))
+	return st_data2num(res);
+    else
+        return def;
+}
+
+static VALUE
+sparse_array_int_set(VALUE self, VALUE ri, VALUE val)
+{
+    spar_table *table;
+    spar_index_t i = NUM2UINT(ri);
+    st_data_t val_ = num2st_data(val);
+    GetSparseArrayInt(self, table);
+    spar_insert(table, i, val_);
+    return val;
+}
+
+static VALUE
+sparse_array_int_del(VALUE self, VALUE ri)
+{
+    spar_table *table;
+    spar_index_t i = NUM2UINT(ri);
+    st_data_t res = 0;
+    GetSparseArrayInt(self, table);
+    if (spar_delete(table, i, &res))
+        return st_data2num(res);
+    return Qnil;
+}
+
+static VALUE
+sparse_array_int_size(VALUE self)
+{
+    spar_table *table;
+    GetSparseArrayInt(self, table);
+    return UINT2NUM(table->num_entries);
+}
+
+static VALUE
+sparse_array_int_empty_p(VALUE self)
+{
+    spar_table *table;
+    GetSparseArrayInt(self, table);
+    return table->num_entries ? Qfalse : Qtrue;
+}
+
+static VALUE
+sparse_array_int_clear(VALUE self)
+{
+    spar_table *table;
+    GetSparseArrayInt(self, table);
+    spar_clear(table);
+    return self;
+}
+
+static VALUE
+sparse_array_int_keys(VALUE self)
+{
+    spar_table *table;
+    VALUE res;
+    GetSparseArrayInt(self, table);
+    res = rb_ary_new2(table->num_entries);
+    SPAR_FOREACH_START(table);
+    (void)value;
+    rb_ary_push(res, UINT2NUM(entry->key));
+    SPAR_FOREACH_END();
+    return res;
+}
+
+static VALUE
+sparse_array_int_values(VALUE self)
+{
+    spar_table *table;
+    VALUE res;
+    GetSparseArrayInt(self, table);
+    res = rb_ary_new2(table->num_entries);
+    SPAR_FOREACH_START(table);
+    rb_ary_push(res, st_data2num((VALUE)value));
+    SPAR_FOREACH_END();
+    return res;
+}
+
+static VALUE
+sparse_array_int_each(VALUE self)
+{
+    spar_table *table;
+    VALUE y[2] = {Qnil, Qnil};
+    RETURN_ENUMERATOR(self, 0, 0);
+    GetSparseArrayInt(self, table);
+    SPAR_FOREACH_START(table);
+    y[0] = UINT2NUM(entry->key);
+    y[1] = st_data2num((VALUE)value);
+    rb_yield_values2(2, y);
+    SPAR_FOREACH_END();
+    return self;
+}
+
+static VALUE
+sparse_array_int_each_key(VALUE self)
+{
+    spar_table *table;
+    RETURN_ENUMERATOR(self, 0, 0);
+    GetSparseArrayInt(self, table);
+    SPAR_FOREACH_START(table);
+    (void)value;
+    rb_yield(UINT2NUM(entry->key));
+    SPAR_FOREACH_END();
+    return self;
+}
+
+static VALUE
+sparse_array_int_each_value(VALUE self)
+{
+    spar_table *table;
+    RETURN_ENUMERATOR(self, 0, 0);
+    GetSparseArrayInt(self, table);
+    SPAR_FOREACH_START(table);
+    rb_yield(st_data2num(value));
+    SPAR_FOREACH_END();
+    return self;
+}
+
+static VALUE
+sparse_array_int_init_copy(VALUE self, VALUE copy)
+{
+    spar_table *table;
+    spar_table *copied;
+    GetSparseArrayInt(self, table);
+    GetSparseArrayInt(copy, copied);
+    rb_obj_init_copy(self, copy);
+    spar_copy_to(table, copied);
+    return copy;
+}
+
+static VALUE
+sparse_array_int_inspect_rec(VALUE self, VALUE dummy, int recur)
+{
+    VALUE str;
+    spar_table *table;
+    GetSparseArrayInt(self, table);
+
+    if (recur) return rb_usascii_str_new2("<SparseArrayInt ...>");
+    str = rb_str_buf_new2("<SparseArrayInt");
+    SPAR_FOREACH_START(table);
+#if SIZEOF_LONG == SIZEOF_VOIDP
+        rb_str_catf(str, " %u=>%lu", entry->key, value);
+#else
+        rb_str_catf(str, " %u=>%llu", entry->key, value);
+#endif
+    SPAR_FOREACH_END();
+    rb_str_buf_cat2(str, ">");
+    OBJ_INFECT(str, self);
+
+    return str;
+}
+
+static VALUE
+sparse_array_int_inspect(VALUE self)
+{
+    spar_table *table;
+    GetSparseArrayInt(self, table);
+    if (table->num_entries == 0)
+        return rb_usascii_str_new2("<SparseArrayInt>");
+    return rb_exec_recursive(sparse_array_int_inspect_rec, self, 0);
+}
+
 void
 Init_sparse_array() {
-    VALUE cls_sparse_array = rb_define_class("SparseArray", rb_cObject);
+    VALUE cls_sparse_array, cls_sparse_array_int;
+    cls_sparse_array = rb_define_class("SparseArray", rb_cObject);
     rb_define_alloc_func(cls_sparse_array, sparse_array_alloc);
     rb_define_method(cls_sparse_array, "[]", sparse_array_get, 1);
     rb_define_method(cls_sparse_array, "fetch", sparse_array_fetch, 2);
@@ -655,4 +854,26 @@ Init_sparse_array() {
     rb_define_method(cls_sparse_array, "inspect", sparse_array_inspect, 0);
     rb_define_method(cls_sparse_array, "initialize_copy", sparse_array_init_copy, 1);
     rb_include_module(cls_sparse_array, rb_mEnumerable);
+
+    cls_sparse_array_int = rb_define_class("SparseArrayInt", rb_cObject);
+    rb_define_alloc_func(cls_sparse_array_int, sparse_array_int_alloc);
+    rb_define_method(cls_sparse_array_int, "[]", sparse_array_int_get, 1);
+    rb_define_method(cls_sparse_array_int, "fetch", sparse_array_int_fetch, 2);
+    rb_define_method(cls_sparse_array_int, "[]=", sparse_array_int_set, 2);
+    rb_define_method(cls_sparse_array_int, "delete", sparse_array_int_del, 1);
+    rb_define_method(cls_sparse_array_int, "clear", sparse_array_int_clear, 0);
+    rb_define_method(cls_sparse_array_int, "empty?", sparse_array_int_empty_p, 0);
+    rb_define_method(cls_sparse_array_int, "size", sparse_array_int_size, 1);
+    rb_define_method(cls_sparse_array_int, "count", sparse_array_int_size, 1);
+    rb_define_method(cls_sparse_array_int, "include?", sparse_array_int_include, 1);
+    rb_define_method(cls_sparse_array_int, "has_key?", sparse_array_int_include, 1);
+    rb_define_method(cls_sparse_array_int, "keys", sparse_array_int_keys, 0);
+    rb_define_method(cls_sparse_array_int, "values", sparse_array_int_values, 0);
+    rb_define_method(cls_sparse_array_int, "each", sparse_array_int_each, 0);
+    rb_define_method(cls_sparse_array_int, "each_pair", sparse_array_int_each, 0);
+    rb_define_method(cls_sparse_array_int, "each_key", sparse_array_int_each_key, 0);
+    rb_define_method(cls_sparse_array_int, "each_value", sparse_array_int_each_value, 0);
+    rb_define_method(cls_sparse_array_int, "inspect", sparse_array_int_inspect, 0);
+    rb_define_method(cls_sparse_array_int, "initialize_copy", sparse_array_int_init_copy, 1);
+    rb_include_module(cls_sparse_array_int, rb_mEnumerable);
 }
