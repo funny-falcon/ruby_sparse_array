@@ -557,7 +557,7 @@ sparse_array_each_value(VALUE self)
 {
     spar_table *table;
     RETURN_ENUMERATOR(self, 0, 0);
-    GetSparseArrayInt(self, table);
+    GetSparseArray(self, table);
     SPAR_FOREACH_START(table);
     rb_yield((VALUE)(value));
     SPAR_FOREACH_END();
@@ -565,15 +565,15 @@ sparse_array_each_value(VALUE self)
 }
 
 static VALUE
-sparse_array_init_copy(VALUE self, VALUE copy)
+sparse_array_init_copy(VALUE self, VALUE orig)
 {
     spar_table *table;
-    spar_table *copied;
+    spar_table *original;
     GetSparseArray(self, table);
-    GetSparseArray(copy, copied);
-    rb_obj_init_copy(self, copy);
-    spar_copy_to(table, copied);
-    return copy;
+    GetSparseArray(orig, original);
+    rb_obj_init_copy(self, orig);
+    spar_copy_to(original, table);
+    return self;
 }
 
 static VALUE
@@ -787,15 +787,15 @@ sparse_array_int_each_value(VALUE self)
 }
 
 static VALUE
-sparse_array_int_init_copy(VALUE self, VALUE copy)
+sparse_array_int_init_copy(VALUE self, VALUE orig)
 {
     spar_table *table;
-    spar_table *copied;
+    spar_table *original;
     GetSparseArrayInt(self, table);
-    GetSparseArrayInt(copy, copied);
-    rb_obj_init_copy(self, copy);
-    spar_copy_to(table, copied);
-    return copy;
+    GetSparseArrayInt(orig, original);
+    rb_obj_init_copy(self, orig);
+    spar_copy_to(original, table);
+    return self;
 }
 
 static VALUE
