@@ -841,8 +841,8 @@ Init_sparse_array() {
     rb_define_method(cls_sparse_array, "delete", sparse_array_del, 1);
     rb_define_method(cls_sparse_array, "clear", sparse_array_clear, 0);
     rb_define_method(cls_sparse_array, "empty?", sparse_array_empty_p, 0);
-    rb_define_method(cls_sparse_array, "size", sparse_array_size, 1);
-    rb_define_method(cls_sparse_array, "count", sparse_array_size, 1);
+    rb_define_method(cls_sparse_array, "size", sparse_array_size, 0);
+    rb_define_method(cls_sparse_array, "count", sparse_array_size, 0);
     rb_define_method(cls_sparse_array, "include?", sparse_array_include, 1);
     rb_define_method(cls_sparse_array, "has_key?", sparse_array_include, 1);
     rb_define_method(cls_sparse_array, "keys", sparse_array_keys, 0);
@@ -863,8 +863,8 @@ Init_sparse_array() {
     rb_define_method(cls_sparse_array_int, "delete", sparse_array_int_del, 1);
     rb_define_method(cls_sparse_array_int, "clear", sparse_array_int_clear, 0);
     rb_define_method(cls_sparse_array_int, "empty?", sparse_array_int_empty_p, 0);
-    rb_define_method(cls_sparse_array_int, "size", sparse_array_int_size, 1);
-    rb_define_method(cls_sparse_array_int, "count", sparse_array_int_size, 1);
+    rb_define_method(cls_sparse_array_int, "size", sparse_array_int_size, 0);
+    rb_define_method(cls_sparse_array_int, "count", sparse_array_int_size, 0);
     rb_define_method(cls_sparse_array_int, "include?", sparse_array_int_include, 1);
     rb_define_method(cls_sparse_array_int, "has_key?", sparse_array_int_include, 1);
     rb_define_method(cls_sparse_array_int, "keys", sparse_array_int_keys, 0);
